@@ -1,0 +1,232 @@
+<div id="dynsum_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <div class="flex-container alignitemscenter margin0">
+                <b>Dynamic Summarizer</b>
+                <i id="dynsum_popout_btn" class="fa-solid fa-window-restore menu_button margin0" title="Pop out"></i>
+            </div>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div id="dynsum_drawer_contents">
+
+                <!-- ── API Source ─────────────────────────────── -->
+                <label for="dynsum_source">Summarize with:</label>
+                <select id="dynsum_source" class="text_pole">
+                    <option value="main">Main API (same as chat)</option>
+                    <option value="webllm">WebLLM Extension</option>
+                    <option value="custom">Custom API (separate key)</option>
+                </select>
+
+                <!-- Custom API row (only shown when source = custom) -->
+                <div id="dynsum_custom_api_row" style="display:none;">
+                    <label for="dynsum_custom_api_url">Custom API Base URL</label>
+                    <input id="dynsum_custom_api_url" class="text_pole" type="text" placeholder="https://api.openai.com/v1" />
+                    <label for="dynsum_custom_api_key">API Key</label>
+                    <input id="dynsum_custom_api_key" class="text_pole" type="password" placeholder="sk-..." />
+                    <label for="dynsum_custom_model">Model</label>
+                    <input id="dynsum_custom_model" class="text_pole" type="text" placeholder="gpt-4o-mini" />
+                </div>
+
+                <!-- ── Current combined summary display ───────── -->
+                <div class="flex-container justifyspacebetween alignitemscenter" style="margin-top:6px;">
+                    <span><i class="fa-solid fa-book-open"></i> Active Summary:</span>
+                    <i class="editor_maximize fa-solid fa-maximize right_menu_button" data-for="dynsum_combined_preview" title="Expand"></i>
+                </div>
+                <textarea id="dynsum_combined_preview" class="text_pole textarea_compact" rows="4"
+                    placeholder="Enabled snippets will appear here..." readonly></textarea>
+
+                <!-- ── Action bar ──────────────────────────────── -->
+                <div class="dynsum_action_bar">
+                    <div id="dynsum_summarize_now" class="menu_button menu_button_icon" title="Run summarizer now">
+                        <i class="fa-solid fa-database dynsum_btn_icon"></i>
+                        <div class="dynsum_spinner"></div>
+                        <span>Summarize Now</span>
+                    </div>
+                    <label for="dynsum_frozen" title="Pause all auto-trigger summarization">
+                        <input id="dynsum_frozen" type="checkbox" />
+                        <span>Pause</span>
+                    </label>
+                </div>
+
+                <!-- ── Settings toggle ────────────────────────── -->
+                <div class="dynsum_action_bar" style="margin-top:2px;">
+                    <div id="dynsum_settings_toggle" class="menu_button menu_button_icon" title="Open settings">
+                        <i class="fa-solid fa-cog"></i>
+                        <span>Settings</span>
+                    </div>
+                </div>
+
+                <!-- ── Settings block (collapsible) ──────────── -->
+                <div id="dynsum_settings_block" style="display:none;">
+
+                    <!-- ── Auto-trigger mode ──────────────────── -->
+                    <h4 class="dynsum_section_title">Auto-trigger Mode</h4>
+                    <div class="dynsum_radio_group">
+                        <label>
+                            <input type="radio" name="dynsum_trigger_mode" value="manual" />
+                            <span>Manual only (never auto)</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_trigger_mode" value="messages" />
+                            <span>Every N messages</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_trigger_mode" value="context_pct" />
+                            <span>When N% of unsummarized messages scroll out of context</span>
+                        </label>
+                    </div>
+
+                    <!-- Messages interval row -->
+                    <div id="dynsum_messages_row">
+                        <label for="dynsum_interval">
+                            Trigger every <span id="dynsum_interval_val"></span> messages
+                            <small class="dynsum_hint">0 = disabled</small>
+                        </label>
+                        <input id="dynsum_interval" type="range" min="0" max="100" step="1" value="10" />
+                    </div>
+
+                    <!-- Context % row -->
+                    <div id="dynsum_pct_row" style="display:none;">
+                        <label for="dynsum_context_pct">
+                            Trigger when <span id="dynsum_context_pct_val"></span>% of unsummarized messages leave context
+                        </label>
+                        <input id="dynsum_context_pct" type="range" min="10" max="100" step="5" value="75" />
+                    </div>
+                    <hr>
+
+                    <!-- ── Summarization start point ──────────── -->
+                    <h4 class="dynsum_section_title">Summarization Start Point</h4>
+                    <div class="dynsum_radio_group">
+                        <label>
+                            <input type="radio" name="dynsum_start_mode" value="last_end" />
+                            <span>Continue from last snippet end (default)</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_start_mode" value="beginning" />
+                            <span>Always from beginning of chat</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_start_mode" value="custom" />
+                            <span>Custom message index</span>
+                        </label>
+                    </div>
+                    <div id="dynsum_custom_start_row" style="display:none;">
+                        <label for="dynsum_start_index">Start at message #</label>
+                        <input id="dynsum_start_index" class="text_pole dynsum_num_input" type="number" min="0" value="0" />
+                        <div id="dynsum_pick_from_chat" class="menu_button menu_button_icon" title="Click a message in chat to set start index">
+                            <i class="fa-solid fa-crosshairs"></i>
+                            <span>Pick from chat</span>
+                        </div>
+                    </div>
+                    <hr>
+
+                    <!-- ── Prompts ─────────────────────────────── -->
+                    <h4 class="dynsum_section_title">Summary Prompt</h4>
+                    <div class="flex-container justifyspacebetween alignitemscenter">
+                        <small>Sent to AI to request the summary. <code>{{words}}</code> = target length.</small>
+                        <div id="dynsum_prompt_restore" class="menu_button margin0" title="Restore default prompt">
+                            <i class="fa-solid fa-clock-rotate-left"></i>
+                        </div>
+                    </div>
+                    <textarea id="dynsum_prompt" class="text_pole textarea_compact" rows="5"
+                        placeholder="Summarize the story so far..."></textarea>
+
+                    <label for="dynsum_prompt_words">
+                        Target length: <span id="dynsum_prompt_words_val"></span> words
+                    </label>
+                    <input id="dynsum_prompt_words" type="range" min="25" max="2000" step="25" value="200" />
+
+                    <label for="dynsum_response_length">
+                        API response length: <span id="dynsum_response_length_val"></span> tokens
+                        <small class="dynsum_hint">0 = default</small>
+                    </label>
+                    <input id="dynsum_response_length" type="range" min="0" max="4096" step="64" value="0" />
+
+                    <!-- ── Story Focus Prompt ──────────────────── -->
+                    <h4 class="dynsum_section_title">
+                        <i class="fa-solid fa-star"></i> Story Focus Guidance
+                        <small class="dynsum_hint" style="font-size:0.75em;font-weight:normal;">Always appended — tell the AI what to preserve</small>
+                    </h4>
+                    <textarea id="dynsum_focus_prompt" class="text_pole textarea_compact" rows="3"
+                        placeholder="e.g. Always preserve: character names and their abilities, key relationships, major plot twists, world-building facts. Never omit deaths or major decisions."></textarea>
+                    <hr>
+
+                    <!-- ── Previous snippets to AI ────────────── -->
+                    <h4 class="dynsum_section_title">Previous Snippets Shown to AI</h4>
+                    <label for="dynsum_prev_snippets">
+                        Show last <span id="dynsum_prev_snippets_val"></span> enabled snippets as context
+                        <small class="dynsum_hint">0 = none</small>
+                    </label>
+                    <input id="dynsum_prev_snippets" type="range" min="0" max="10" step="1" value="2" />
+                    <hr>
+
+                    <!-- ── Injection settings ─────────────────── -->
+                    <h4 class="dynsum_section_title">Injection into Prompt</h4>
+                    <label for="dynsum_template">Template <small class="dynsum_hint"><code>{{summary}}</code> = combined snippet text</small></label>
+                    <textarea id="dynsum_template" class="text_pole textarea_compact" rows="2"
+                        placeholder="[Summary: {{summary}}]"></textarea>
+
+                    <label>Injection Position</label>
+                    <div class="dynsum_radio_group">
+                        <label>
+                            <input type="radio" name="dynsum_position" value="-1" />
+                            <span>None (not injected — use <code>{{dynsum}}</code> macro)</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_position" value="2" />
+                            <span>Before Main Prompt / Story String</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_position" value="0" />
+                            <span>After Main Prompt / Story String</span>
+                        </label>
+                        <label class="flex-container alignitemscenter" style="gap:6px;">
+                            <input type="radio" name="dynsum_position" value="1" />
+                            <span>In-chat @ Depth</span>
+                            <input id="dynsum_depth" class="text_pole dynsum_num_input" type="number" min="0" max="9999" value="2" />
+                            <span>as</span>
+                            <select id="dynsum_role" class="text_pole" style="width:auto;">
+                                <option value="0">System</option>
+                                <option value="1">User</option>
+                                <option value="2">Assistant</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label for="dynsum_wi_scan" title="Include summary text in World Info keyword scanning">
+                        <input id="dynsum_wi_scan" type="checkbox" />
+                        <span>Include in World Info scanning</span>
+                    </label>
+
+                </div><!-- /settings block -->
+
+                <!-- ── Snippet History Panel ───────────────────── -->
+                <div id="dynsum_snippet_panel">
+                    <div id="dynsum_snippet_header">
+                        <span><i class="fa-solid fa-layer-group"></i> Summary Snippets</span>
+                        <div class="dynsum_snippet_actions">
+                            <div id="dynsum_snippets_all_on" class="menu_button margin0" title="Enable all">
+                                <small><i class="fa-solid fa-eye"></i> All on</small>
+                            </div>
+                            <div id="dynsum_snippets_all_off" class="menu_button margin0" title="Disable all">
+                                <small><i class="fa-solid fa-eye-slash"></i> All off</small>
+                            </div>
+                            <div id="dynsum_snippets_clear" class="menu_button margin0" title="Delete all snippets">
+                                <small><i class="fa-solid fa-trash"></i> Clear all</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="dynsum_snippet_list"></div>
+                </div>
+
+            </div><!-- /drawer contents -->
+        </div>
+    </div>
+</div>
+
+<!-- Pick-from-chat overlay bar -->
+<div id="dynsum_pick_bar" class="hidden">
+    <i class="fa-solid fa-crosshairs"></i>
+    <span>Click any chat message to set it as the summarization start point</span>
+    <div id="dynsum_pick_cancel" class="menu_button margin0"><small>Cancel</small></div>
+</div>

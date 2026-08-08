@@ -1,0 +1,339 @@
+/* ================================================================
+   Dynamic Summarizer – Extension Styles
+   ================================================================ */
+
+/* ── Root container ─────────────────────────────────────────── */
+#dynsum_settings {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Combined preview textarea ──────────────────────────────── */
+#dynsum_combined_preview {
+    field-sizing: content;
+    max-height: 40dvh;
+    min-height: 60px;
+    resize: vertical;
+    opacity: 0.85;
+}
+
+/* ── Action bar ─────────────────────────────────────────────── */
+.dynsum_action_bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.dynsum_action_bar label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    cursor: pointer;
+}
+
+/* ── Summarize Now spinner ──────────────────────────────────── */
+#dynsum_summarize_now {
+    position: relative;
+    overflow: hidden;
+    transition: opacity 0.2s;
+}
+
+#dynsum_summarize_now.summarizing {
+    pointer-events: none;
+    opacity: 0.65;
+}
+
+.dynsum_spinner {
+    display: none;
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: dynsum-spin 0.65s linear infinite;
+    flex-shrink: 0;
+}
+
+#dynsum_summarize_now.summarizing .dynsum_spinner {
+    display: inline-block;
+}
+
+#dynsum_summarize_now.summarizing .dynsum_btn_icon {
+    display: none;
+}
+
+@keyframes dynsum-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Settings block ─────────────────────────────────────────── */
+#dynsum_settings_block {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 4px;
+}
+
+.dynsum_section_title {
+    text-align: center;
+    margin: 6px 0 2px;
+    font-size: 0.9em;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(128,128,128,0.2));
+    padding-bottom: 2px;
+}
+
+.dynsum_hint {
+    color: var(--SmartThemeQuoteColor, #888);
+    margin-left: 3px;
+}
+
+.dynsum_num_input {
+    width: 64px;
+}
+
+/* ── Radio groups ───────────────────────────────────────────── */
+.dynsum_radio_group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 2px 0 4px;
+}
+
+.dynsum_radio_group label {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.dynsum_radio_group input[type="radio"] {
+    flex-shrink: 0;
+    margin-top: 3px;
+}
+
+/* ── Trigger sub-rows ───────────────────────────────────────── */
+#dynsum_messages_row,
+#dynsum_pct_row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 10px;
+    border-left: 2px solid var(--SmartThemeBorderColor, rgba(128,128,128,0.2));
+    margin-left: 3px;
+    margin-bottom: 4px;
+}
+
+/* ── Custom start row ───────────────────────────────────────── */
+#dynsum_custom_start_row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 22px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+/* ── Custom API row ─────────────────────────────────────────── */
+#dynsum_custom_api_row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 8px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(128,128,128,0.2));
+    border-radius: 6px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+    background: rgba(0,0,0,0.08);
+}
+
+/* ── Focus prompt ───────────────────────────────────────────── */
+#dynsum_focus_prompt {
+    field-sizing: content;
+    min-height: 48px;
+    max-height: 130px;
+}
+
+/* ── Snippet Panel ──────────────────────────────────────────── */
+#dynsum_snippet_panel {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+#dynsum_snippet_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: bold;
+    font-size: 0.88em;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(128,128,128,0.25));
+}
+
+.dynsum_snippet_actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+#dynsum_snippet_list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+#dynsum_snippet_list:empty::after {
+    content: "No summary snippets yet. Click 'Summarize Now' to create one.";
+    color: var(--SmartThemeQuoteColor, #888);
+    font-style: italic;
+    font-size: 0.83em;
+    padding: 6px 0;
+    display: block;
+}
+
+/* ── Snippet items ──────────────────────────────────────────── */
+.dynsum-snippet {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: var(--SmartThemeBlurTintColor, rgba(0,0,0,0.12));
+    border: 1px solid var(--SmartThemeBorderColor, rgba(128,128,128,0.18));
+    transition: border-color 0.15s, opacity 0.15s, box-shadow 0.15s;
+    min-width: 0;
+}
+
+.dynsum-snippet.disabled {
+    opacity: 0.42;
+    border-style: dashed;
+}
+
+.dynsum-snippet:hover {
+    border-color: var(--SmartThemeBodyColor, rgba(128,128,128,0.45));
+    box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+}
+
+.dynsum-snippet-toggle {
+    flex-shrink: 0;
+    margin-top: 3px;
+    cursor: pointer;
+    width: 15px;
+    height: 15px;
+    accent-color: var(--SmartThemeUserMesBlurTintColor, #4a90d9);
+}
+
+.dynsum-snippet-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dynsum-snippet-meta {
+    font-size: 0.72em;
+    color: var(--SmartThemeQuoteColor, #888);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dynsum-snippet-preview {
+    font-size: 0.84em;
+    color: var(--SmartThemeBodyColor, inherit);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+    cursor: pointer;
+    transition: -webkit-line-clamp 0.1s;
+}
+
+.dynsum-snippet-preview.expanded,
+.dynsum-snippet-preview:hover {
+    -webkit-line-clamp: unset;
+}
+
+.dynsum-snippet-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.dynsum-snippet-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 3px 5px;
+    color: var(--SmartThemeBodyColor, inherit);
+    opacity: 0.55;
+    border-radius: 4px;
+    font-size: 0.8em;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    line-height: 1;
+}
+
+.dynsum-snippet-btn:hover {
+    opacity: 1;
+    background: rgba(128,128,128,0.13);
+}
+
+.dynsum-snippet-btn.delete:hover { color: #e05050; }
+.dynsum-snippet-btn.load:hover   { color: #4a90d9; }
+
+/* ── Pick-from-chat overlay ─────────────────────────────────── */
+body.dynsum_picking #chat .mes {
+    cursor: crosshair !important;
+    outline: 2px dashed rgba(74,144,217,0.4);
+    outline-offset: -2px;
+    transition: outline-color 0.1s, background 0.1s;
+}
+
+body.dynsum_picking #chat .mes:hover {
+    outline-color: #4a90d9;
+    background: rgba(74,144,217,0.06) !important;
+}
+
+#dynsum_pick_bar {
+    position: fixed;
+    bottom: 82px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    background: rgba(24,24,36,0.93);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(74,144,217,0.4);
+    border-radius: 22px;
+    padding: 9px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(74,144,217,0.2);
+    font-size: 0.88em;
+    color: #ccc;
+}
+
+#dynsum_pick_bar.hidden {
+    display: none !important;
+}
+
+/* ── Popout ─────────────────────────────────────────────────── */
+#dynsum_popout {
+    display: flex;
+    flex-direction: column;
+    padding-top: 25px;
+}

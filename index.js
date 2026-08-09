@@ -470,8 +470,18 @@ async function buildChatContent(ctx, sysPrompt) {
     } else if (endMode === 'custom') {
         maxIdx = Math.min(cfg().endCustomIndex || 0, chat.length - 1);
     } else {
-        // auto: exclude the just-received message (chat[-1])
-        maxIdx = chat.length - 2;
+        // auto: end at the last message that has FALLEN OUT of context.
+        // lastInContextMessageId is the index where the context window currently starts —
+        // everything before it is out of context and should be summarized.
+        const lastInCtx = ctx.chatMetadata?.lastInContextMessageId;
+        if (lastInCtx != null && lastInCtx > 0) {
+            // Summarize up to (but not including) the first in-context message
+            maxIdx = lastInCtx - 1;
+        } else {
+            // Nothing has rolled out of context yet — fall back to second-to-last message
+            // (exclude the just-received message so we don't summarize an incomplete exchange)
+            maxIdx = chat.length - 2;
+        }
     }
 
     const startIdx = getSummarizationStart();

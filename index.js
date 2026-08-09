@@ -467,7 +467,7 @@ async function getPromptIfShouldRun(ctx, force) {
 // Build chat content string to send to API
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function buildChatContent(ctx, sysPrompt) {
+async function buildChatContent(ctx, sysPrompt, startIdxOverride = null) {
     const chat = ctx.chat.slice();
     const endMode = cfg().endMode || 'auto';
 
@@ -492,7 +492,7 @@ async function buildChatContent(ctx, sysPrompt) {
         }
     }
 
-    const startIdx = getSummarizationStart();
+    const startIdx = startIdxOverride !== null ? startIdxOverride : getSummarizationStart();
     if (startIdx > maxIdx) {
         console.debug(`[DynSum] startIdx (${startIdx}) > maxIdx (${maxIdx}), nothing to summarize.`);
         return null;
@@ -510,7 +510,7 @@ async function buildChatContent(ctx, sysPrompt) {
 
         buffer.push(`${msg.name}:\n${msg.mes}`);
 
-        // In auto mode enforce context limit; in explicit modes still enforce it
+        // Enforce context limit per chunk
         const combined = [sysPrompt, ...buffer].join('\n\n');
         const tokens = await countTokens(combined, PADDING);
 
@@ -524,7 +524,7 @@ async function buildChatContent(ctx, sysPrompt) {
 
     if (!lastUsed || !buffer.length) return null;
 
-    return { content: buffer.join('\n\n'), endIdx: lastUsed.idx };
+    return { content: buffer.join('\n\n'), startIdx, endIdx: lastUsed.idx, maxIdx };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -615,59 +615,82 @@ async function runSummarize(force = false) {
     }
 
     const ctx = getContext();
-    const sysPrompt = await getPromptIfShouldRun(ctx, force);
-    if (!sysPrompt) return '';
-
-    const chatContent = await buildChatContent(ctx, sysPrompt);
-    if (!chatContent) {
-        if (force) toastr.info('No new messages to summarize since the last snippet.', 'Dynamic Summarizer');
-        return '';
+    if (!force) {
+        const checkPrompt = await getPromptIfShouldRun(ctx, force);
+        if (!checkPrompt) return '';
     }
 
-    inApiCall = true;
-    let summary = '';
+    let currentStartIdx = getSummarizationStart();
+    const generatedSummaries = [];
 
-    try {
-        switch (source) {
-            case API_SOURCES.MAIN:
-                summary = await callMainApi(sysPrompt, chatContent.content);
-                break;
-            case API_SOURCES.WEBLLM:
-                summary = await callWebLlmApi(sysPrompt, chatContent.content);
-                break;
-            case API_SOURCES.CUSTOM:
-                summary = await callCustomApi(sysPrompt, chatContent.content);
-                break;
-            default:
-                toastr.error('Unknown API source configured.');
-                return '';
+    while (true) {
+        const base = substituteParamsExtended(cfg().prompt || DEFAULT_PROMPT, { words: cfg().promptWords });
+        if (!base) break;
+        const sysPrompt = buildSystemPrompt(base);
+
+        const chatContent = await buildChatContent(ctx, sysPrompt, currentStartIdx);
+        if (!chatContent) {
+            if (force && generatedSummaries.length === 0) {
+                toastr.info('No new messages to summarize since the last snippet.', 'Dynamic Summarizer');
+            }
+            break;
         }
-    } catch (err) {
-        console.error('[DynSum] Summarization failed:', err);
-        toastr.error(String(err), 'Dynamic Summarizer failed');
-        return '';
-    } finally {
-        inApiCall = false;
+
+        inApiCall = true;
+        let summary = '';
+
+        try {
+            switch (source) {
+                case API_SOURCES.MAIN:
+                    summary = await callMainApi(sysPrompt, chatContent.content);
+                    break;
+                case API_SOURCES.WEBLLM:
+                    summary = await callWebLlmApi(sysPrompt, chatContent.content);
+                    break;
+                case API_SOURCES.CUSTOM:
+                    summary = await callCustomApi(sysPrompt, chatContent.content);
+                    break;
+                default:
+                    toastr.error('Unknown API source configured.');
+                    return '';
+            }
+        } catch (err) {
+            console.error('[DynSum] Summarization failed:', err);
+            toastr.error(String(err), 'Dynamic Summarizer failed');
+            break;
+        } finally {
+            inApiCall = false;
+        }
+
+        if (!summary) {
+            console.warn('[DynSum] Empty summary received.');
+            break;
+        }
+
+        if (isContextChanged(ctx)) {
+            console.log('[DynSum] Context changed during summarization, discarding result.');
+            break;
+        }
+
+        const snippet = addSnippet(summary, chatContent.startIdx, chatContent.endIdx);
+        console.log(`[DynSum] Snippet created: ${snippet.id} (msg ${snippet.startMsgIdx}–${snippet.endMsgIdx})`);
+        generatedSummaries.push(summary);
+
+        reinsertSummary();
+        renderSnippetList();
+
+        // Check if we've reached the target end message index
+        if (chatContent.endIdx >= chatContent.maxIdx) {
+            break;
+        }
+
+        // Advance to next chunk start
+        currentStartIdx = chatContent.endIdx + 1;
     }
 
-    if (!summary) {
-        console.warn('[DynSum] Empty summary received.');
-        return '';
-    }
-
-    if (isContextChanged(ctx)) {
-        console.log('[DynSum] Context changed during summarization, discarding result.');
-        return '';
-    }
-
-    const snippet = addSnippet(summary, getSummarizationStart(), chatContent.endIdx);
-    console.log(`[DynSum] Snippet created: ${snippet.id} (msg ${snippet.startMsgIdx}–${snippet.endMsgIdx})`);
-
-    reinsertSummary();
-    renderSnippetList();
-
-    return summary;
+    return generatedSummaries.join('\n\n');
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Chat events

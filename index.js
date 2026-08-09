@@ -81,6 +81,11 @@ const DEFAULT_PROMPT =
     'If previous summaries are provided, you may extend the most recent one or write a new summary focused only on the new content — do not repeat what is already covered. ' +
     'Limit your response to {{words}} words or less. Output only the summary text, nothing else.';
 
+const DEFAULT_COMPACT_PROMPT =
+    'Synthesize and compact the following section summaries into a single, cohesive, lossless master summary. ' +
+    'Retain all key plot events, character relationships, important facts, decisions, and world-building details. ' +
+    'Do not repeat facts or include redundant phrasing. Output only the final updated master summary text.';
+
 const DEFAULT_TEMPLATE = '[Summary: {{summary}}]';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +105,7 @@ const defaultSettings = {
     endMode: 'auto',
     endCustomIndex: 0,
     prompt: DEFAULT_PROMPT,
+    compactPrompt: DEFAULT_COMPACT_PROMPT,
     promptWords: 200,
     responseLength: 0,
     focusPrompt: '',
@@ -629,6 +635,23 @@ async function callCustomApi(sysPrompt, userContent) {
     return (data.choices?.[0]?.message?.content || '').trim();
 }
 
+async function callConfiguredApi(sysPrompt, userContent) {
+    const source = cfg().source;
+    if (source === API_SOURCES.WEBLLM && !isWebLlmSupported()) {
+        throw new Error('WebLLM extension is not loaded or not supported.');
+    }
+    switch (source) {
+        case API_SOURCES.MAIN:
+            return await callMainApi(sysPrompt, userContent);
+        case API_SOURCES.WEBLLM:
+            return await callWebLlmApi(sysPrompt, userContent);
+        case API_SOURCES.CUSTOM:
+            return await callCustomApi(sysPrompt, userContent);
+        default:
+            throw new Error('Unknown API source configured.');
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Context integrity guard
 // ─────────────────────────────────────────────────────────────────────────────
@@ -685,20 +708,7 @@ async function runSummarize(force = false) {
         let summary = '';
 
         try {
-            switch (source) {
-                case API_SOURCES.MAIN:
-                    summary = await callMainApi(sysPrompt, chatContent.content);
-                    break;
-                case API_SOURCES.WEBLLM:
-                    summary = await callWebLlmApi(sysPrompt, chatContent.content);
-                    break;
-                case API_SOURCES.CUSTOM:
-                    summary = await callCustomApi(sysPrompt, chatContent.content);
-                    break;
-                default:
-                    toastr.error('Unknown API source configured.');
-                    return '';
-            }
+            summary = await callConfiguredApi(sysPrompt, chatContent.content);
         } catch (err) {
             console.error('[DynSum] Summarization failed:', err);
             toastr.error(String(err), 'Dynamic Summarizer failed');
@@ -734,6 +744,87 @@ async function runSummarize(force = false) {
     }
 
     return generatedSummaries.join('\n\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Master Summary Compaction (Summary of Summaries)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function compactSnippets() {
+    if (inApiCall) {
+        toastr.info('Summarizer is currently busy.', 'Dynamic Summarizer');
+        return '';
+    }
+
+    const enabled = loadSnippets().filter(s => s.enabled);
+    if (!enabled.length) {
+        toastr.warning('No enabled summary snippets to compact. Enable at least one snippet first.', 'Dynamic Summarizer');
+        return '';
+    }
+
+    const minStart = Math.min(...enabled.map(s => s.startMsgIdx));
+    const maxEnd = Math.max(...enabled.map(s => s.endMsgIdx));
+
+    const combinedText = enabled
+        .map((s, i) => `[Snippet ${i + 1} (msgs ${s.startMsgIdx}–${s.endMsgIdx})]:\n${s.text}`)
+        .join('\n\n');
+
+    let sysPrompt = cfg().compactPrompt || DEFAULT_COMPACT_PROMPT;
+    const focus = (cfg().focusPrompt || '').trim();
+    if (focus) {
+        sysPrompt += `\n\n--- Story Focus Guidance ---\n${focus}`;
+    }
+
+    const $btns = $('#dynsum_compact_now, #dynsum_snippets_compact');
+    $btns.addClass('summarizing');
+    inApiCall = true;
+
+    try {
+        const masterSummary = await callConfiguredApi(sysPrompt, combinedText);
+        if (!masterSummary) {
+            toastr.warning('Received empty master summary.', 'Dynamic Summarizer');
+            return '';
+        }
+
+        const ctx = getContext();
+        if (isContextChanged(ctx)) {
+            console.log('[DynSum] Context changed during compaction, discarding result.');
+            return '';
+        }
+
+        // Disable the source snippets that were compacted
+        const snippets = loadSnippets().map(s => {
+            if (enabled.some(e => e.id === s.id)) {
+                return { ...s, enabled: false };
+            }
+            return s;
+        });
+
+        // Add the new master snippet as enabled spanning the full range
+        const masterSnippet = {
+            id: genId(),
+            text: masterSummary.trim(),
+            timestamp: Date.now(),
+            enabled: true,
+            startMsgIdx: minStart,
+            endMsgIdx: maxEnd,
+        };
+        snippets.push(masterSnippet);
+
+        saveSnippets(snippets);
+        reinsertSummary();
+        renderSnippetList();
+
+        toastr.success(`Created master summary (msgs ${minStart}–${maxEnd}). Old snippets were disabled so you can toggle between master or individual snippets.`, 'Dynamic Summarizer');
+        return masterSummary;
+    } catch (err) {
+        console.error('[DynSum] Compaction failed:', err);
+        toastr.error(String(err), 'Dynamic Summarizer');
+        return '';
+    } finally {
+        inApiCall = false;
+        $btns.removeClass('summarizing');
+    }
 }
 
 
@@ -859,6 +950,7 @@ function loadSettings() {
     $('#dynsum_end_index').val(s.endCustomIndex || 0);
 
     $('#dynsum_prompt').val(s.prompt);
+    $('#dynsum_compact_prompt').val(s.compactPrompt || DEFAULT_COMPACT_PROMPT);
     $('#dynsum_prompt_words').val(s.promptWords);
     $('#dynsum_prompt_words_val').text(s.promptWords);
     $('#dynsum_response_length').val(s.responseLength);
@@ -933,6 +1025,7 @@ function setupListeners() {
     });
 
     $('#dynsum_prompt').off('input').on('input', function () { cfg().prompt = $(this).val(); saveSettingsDebounced(); });
+    $('#dynsum_compact_prompt').off('input').on('input', function () { cfg().compactPrompt = $(this).val(); saveSettingsDebounced(); });
     $('#dynsum_prompt_restore').off('click').on('click', () => {
         cfg().prompt = DEFAULT_PROMPT;
         $('#dynsum_prompt').val(DEFAULT_PROMPT);
@@ -972,6 +1065,8 @@ function setupListeners() {
             $btn.removeClass('summarizing');
         }
     });
+
+    $('#dynsum_compact_now, #dynsum_snippets_compact').off('click').on('click', compactSnippets);
 
     $('#dynsum_snippets_all_on').off('click').on('click', () => setAllSnippets(true));
     $('#dynsum_snippets_all_off').off('click').on('click', () => setAllSnippets(false));

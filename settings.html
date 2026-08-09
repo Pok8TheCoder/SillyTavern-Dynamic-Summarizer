@@ -49,6 +49,11 @@
                         <div class="dynsum_spinner"></div>
                         <span>Summarize Now</span>
                     </div>
+                    <div id="dynsum_compact_now" class="menu_button menu_button_icon" title="Compact all enabled snippets into a single master summary">
+                        <i class="fa-solid fa-compress dynsum_btn_icon"></i>
+                        <div class="dynsum_spinner"></div>
+                        <span>Compact All</span>
+                    </div>
                     <label for="dynsum_frozen" title="Pause all auto-trigger summarization">
                         <input id="dynsum_frozen" type="checkbox" />
                         <span>Pause</span>
@@ -175,6 +180,14 @@
                     </label>
                     <input id="dynsum_response_length" type="range" min="0" max="4096" step="64" value="0" />
 
+                    <!-- ── Master Summary Prompt ────────────────── -->
+                    <label for="dynsum_compact_prompt" style="margin-top:10px;">
+                        Master Summary Prompt
+                        <small class="dynsum_hint">Used when compacting enabled snippets into a master summary</small>
+                    </label>
+                    <textarea id="dynsum_compact_prompt" class="text_pole textarea_compact" rows="3"
+                        placeholder="Synthesize and compact the following section summaries..."></textarea>
+
                     <!-- ── Story Focus Prompt ──────────────────── -->
                     <h4 class="dynsum_section_title">
                         <i class="fa-solid fa-star"></i> Story Focus Guidance
@@ -237,6 +250,9 @@
                     <div id="dynsum_snippet_header">
                         <span><i class="fa-solid fa-layer-group"></i> Summary Snippets</span>
                         <div class="dynsum_snippet_actions">
+                            <div id="dynsum_snippets_compact" class="menu_button margin0" title="Compact enabled snippets into a master summary">
+                                <small><i class="fa-solid fa-compress"></i> Compact</small>
+                            </div>
                             <div id="dynsum_snippets_all_on" class="menu_button margin0" title="Enable all">
                                 <small><i class="fa-solid fa-eye"></i> All on</small>
                             </div>

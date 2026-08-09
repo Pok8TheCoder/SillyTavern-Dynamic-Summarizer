@@ -97,6 +97,8 @@ const defaultSettings = {
     contextPctThreshold: 75,
     startMode: START_MODES.LAST_END,
     startCustomIndex: 0,
+    endMode: 'auto',
+    endCustomIndex: 0,
     prompt: DEFAULT_PROMPT,
     promptWords: 200,
     responseLength: 0,
@@ -214,6 +216,13 @@ function getEnabledText() {
 function getLastNEnabled(n) {
     if (!n || n <= 0) return [];
     return loadSnippets().filter(s => s.enabled).slice(-n);
+}
+
+function getSummarizationEnd(ctx) {
+    const mode = cfg().endMode || 'auto';
+    if (mode === 'last_msg') return ctx.chat.length - 1;
+    if (mode === 'custom') return Math.min(cfg().endCustomIndex || 0, ctx.chat.length - 1);
+    return null; // auto: fill context
 }
 
 function getSummarizationStart() {
@@ -435,21 +444,38 @@ async function getPromptIfShouldRun(ctx, force) {
 
 async function buildChatContent(ctx, sysPrompt) {
     const chat = ctx.chat.slice();
-    chat.pop(); // exclude the just-received message
+    const endMode = cfg().endMode || 'auto';
+
+    // Determine the max message index to include
+    let maxIdx;
+    if (endMode === 'last_msg') {
+        maxIdx = chat.length - 1;
+    } else if (endMode === 'custom') {
+        maxIdx = Math.min(cfg().endCustomIndex || 0, chat.length - 1);
+    } else {
+        // auto: exclude the just-received message (chat[-1])
+        maxIdx = chat.length - 2;
+    }
 
     const startIdx = getSummarizationStart();
+    if (startIdx > maxIdx) {
+        console.debug(`[DynSum] startIdx (${startIdx}) > maxIdx (${maxIdx}), nothing to summarize.`);
+        return null;
+    }
+
     const PADDING = 64;
     const PROMPT_SIZE = await getContextSize();
 
     const buffer = [];
     let lastUsed = null;
 
-    for (let i = startIdx; i < chat.length; i++) {
+    for (let i = startIdx; i <= maxIdx; i++) {
         const msg = chat[i];
         if (!msg || msg.is_system || !msg.mes) continue;
 
         buffer.push(`${msg.name}:\n${msg.mes}`);
 
+        // In auto mode enforce context limit; in explicit modes still enforce it
         const combined = [sysPrompt, ...buffer].join('\n\n');
         const tokens = await countTokens(combined, PADDING);
 
@@ -664,6 +690,28 @@ function exitPickMode() {
     $('#chat').off('click.dynsum_pick');
 }
 
+function enterPickEndMode() {
+    $('body').addClass('dynsum_picking');
+    $('#dynsum_pick_end_bar').removeClass('hidden');
+
+    $('#chat').one('click.dynsum_pick_end', '.mes', function () {
+        const mesId = Number($(this).attr('mesid'));
+        if (!isNaN(mesId)) {
+            extension_settings.dynamic_summarizer.endCustomIndex = mesId;
+            $('#dynsum_end_index').val(mesId);
+            saveSettingsDebounced();
+            toastr.info(`End point set to message #${mesId}.`, 'Dynamic Summarizer');
+        }
+        exitPickEndMode();
+    });
+}
+
+function exitPickEndMode() {
+    $('body').removeClass('dynsum_picking');
+    $('#dynsum_pick_end_bar').addClass('hidden');
+    $('#chat').off('click.dynsum_pick_end');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings UI
 // ─────────────────────────────────────────────────────────────────────────────
@@ -675,6 +723,10 @@ function applyTriggerModeUI(mode) {
 
 function applyStartModeUI(mode) {
     $('#dynsum_custom_start_row').toggle(mode === START_MODES.CUSTOM);
+}
+
+function applyEndModeUI(mode) {
+    $('#dynsum_custom_end_row').toggle(mode === 'custom');
 }
 
 function loadSettings() {
@@ -698,6 +750,10 @@ function loadSettings() {
     $(`input[name="dynsum_start_mode"][value="${s.startMode}"]`).prop('checked', true);
     applyStartModeUI(s.startMode);
     $('#dynsum_start_index').val(s.startCustomIndex || 0);
+
+    $(`input[name="dynsum_end_mode"][value="${s.endMode || 'auto'}"]`).prop('checked', true);
+    applyEndModeUI(s.endMode || 'auto');
+    $('#dynsum_end_index').val(s.endCustomIndex || 0);
 
     $('#dynsum_prompt').val(s.prompt);
     $('#dynsum_prompt_words').val(s.promptWords);
@@ -760,6 +816,18 @@ function setupListeners() {
     });
     $('#dynsum_pick_from_chat').off('click').on('click', enterPickMode);
     $('#dynsum_pick_cancel').off('click').on('click', exitPickMode);
+    $('#dynsum_pick_end_from_chat').off('click').on('click', enterPickEndMode);
+    $('#dynsum_pick_end_cancel').off('click').on('click', exitPickEndMode);
+
+    $('input[name="dynsum_end_mode"]').off('change').on('change', function () {
+        cfg().endMode = $(this).val();
+        applyEndModeUI(cfg().endMode);
+        saveSettingsDebounced();
+    });
+    $('#dynsum_end_index').off('input').on('input', function () {
+        cfg().endCustomIndex = Number($(this).val());
+        saveSettingsDebounced();
+    });
 
     $('#dynsum_prompt').off('input').on('input', function () { cfg().prompt = $(this).val(); saveSettingsDebounced(); });
     $('#dynsum_prompt_restore').off('click').on('click', () => {

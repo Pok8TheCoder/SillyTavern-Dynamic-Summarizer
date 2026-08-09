@@ -130,7 +130,8 @@
 }
 
 /* ── Custom start row ───────────────────────────────────────── */
-#dynsum_custom_start_row {
+#dynsum_custom_start_row,
+#dynsum_custom_end_row {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -308,7 +309,8 @@ body.dynsum_picking #chat .mes:hover {
     background: rgba(74,144,217,0.06) !important;
 }
 
-#dynsum_pick_bar {
+#dynsum_pick_bar,
+#dynsum_pick_end_bar {
     position: fixed;
     bottom: 82px;
     left: 50%;
@@ -327,7 +329,13 @@ body.dynsum_picking #chat .mes:hover {
     color: #ccc;
 }
 
-#dynsum_pick_bar.hidden {
+#dynsum_pick_end_bar {
+    border-color: rgba(217,144,74,0.4);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(217,144,74,0.2);
+}
+
+#dynsum_pick_bar.hidden,
+#dynsum_pick_end_bar.hidden {
     display: none !important;
 }
 

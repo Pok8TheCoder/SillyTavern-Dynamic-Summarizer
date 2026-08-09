@@ -121,6 +121,32 @@
                     </div>
                     <hr>
 
+                    <!-- ── End Point ─────────────────────────── -->
+                    <h4 class="dynsum_section_title">Summarization End Point</h4>
+                    <div class="dynsum_radio_group">
+                        <label>
+                            <input type="radio" name="dynsum_end_mode" value="auto" />
+                            <span>Auto — include as many messages as fit in context (default)</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_end_mode" value="last_msg" />
+                            <span>Up to and including the last message</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_end_mode" value="custom" />
+                            <span>Custom message index</span>
+                        </label>
+                    </div>
+                    <div id="dynsum_custom_end_row" style="display:none;">
+                        <label for="dynsum_end_index">End at message #</label>
+                        <input id="dynsum_end_index" class="text_pole dynsum_num_input" type="number" min="0" value="0" />
+                        <div id="dynsum_pick_end_from_chat" class="menu_button menu_button_icon" title="Click a message in chat to set end index">
+                            <i class="fa-solid fa-crosshairs"></i>
+                            <span>Pick from chat</span>
+                        </div>
+                    </div>
+                    <hr>
+
                     <!-- ── Prompts ─────────────────────────────── -->
                     <h4 class="dynsum_section_title">Summary Prompt</h4>
                     <div class="flex-container justifyspacebetween alignitemscenter">
@@ -224,9 +250,16 @@
     </div>
 </div>
 
-<!-- Pick-from-chat overlay bar -->
+<!-- Pick-from-chat overlay bar (start point) -->
 <div id="dynsum_pick_bar" class="hidden">
     <i class="fa-solid fa-crosshairs"></i>
-    <span>Click any chat message to set it as the summarization start point</span>
+    <span>Click any chat message to set it as the <b>start</b> point</span>
     <div id="dynsum_pick_cancel" class="menu_button margin0"><small>Cancel</small></div>
+</div>
+
+<!-- Pick-from-chat overlay bar (end point) -->
+<div id="dynsum_pick_end_bar" class="hidden">
+    <i class="fa-solid fa-flag-checkered"></i>
+    <span>Click any chat message to set it as the <b>end</b> point</span>
+    <div id="dynsum_pick_end_cancel" class="menu_button margin0"><small>Cancel</small></div>
 </div>

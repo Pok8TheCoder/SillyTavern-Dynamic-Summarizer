@@ -334,26 +334,34 @@ function formatSummaryValue(text) {
  */
 function reinsertFromPreview() {
     const text = $('#dynsum_combined_preview').val();
+    const formatted = formatSummaryValue(text);
     setExtensionPrompt(
         MODULE_NAME,
-        formatSummaryValue(text),
+        formatted,
         cfg().position,
         cfg().depth,
         cfg().wiScan,
         cfg().role,
     );
+    // Also populate '1_memory' with NONE position so it shows up in the
+    // prompt itemization popup's dedicated "Summarize" row without double-injecting.
+    setExtensionPrompt('1_memory', formatted, extension_prompt_types.NONE, 0);
 }
 
 function reinsertSummary() {
     const text = getEnabledText();
+    const formatted = formatSummaryValue(text);
     setExtensionPrompt(
         MODULE_NAME,
-        formatSummaryValue(text),
+        formatted,
         cfg().position,
         cfg().depth,
         cfg().wiScan,
         cfg().role,
     );
+    // Also populate '1_memory' with NONE position so it shows up in the
+    // prompt itemization popup's dedicated "Summarize" row without double-injecting.
+    setExtensionPrompt('1_memory', formatted, extension_prompt_types.NONE, 0);
     updateCombinedPreview();
 }
 

@@ -313,6 +313,8 @@ function renderSnippetList() {
 }
 
 function updateCombinedPreview() {
+    // Don't overwrite the textarea if the user has unsaved manual edits
+    if ($('#dynsum_combined_preview').hasClass('dynsum-dirty')) return;
     const text = getEnabledText();
     $('#dynsum_combined_preview').val(text || '');
 }
@@ -325,6 +327,21 @@ function formatSummaryValue(text) {
     if (!text) return '';
     const template = cfg().template || DEFAULT_TEMPLATE;
     return substituteParamsExtended(template, { summary: text });
+}
+
+/**
+ * Reinsert from the combined preview textarea directly (respects manual edits).
+ */
+function reinsertFromPreview() {
+    const text = $('#dynsum_combined_preview').val();
+    setExtensionPrompt(
+        MODULE_NAME,
+        formatSummaryValue(text),
+        cfg().position,
+        cfg().depth,
+        cfg().wiScan,
+        cfg().role,
+    );
 }
 
 function reinsertSummary() {
@@ -879,7 +896,38 @@ function setupListeners() {
     $('#dynsum_settings_toggle').off('click').on('click', () => {
         $('#dynsum_settings_block').slideToggle(200, 'swing');
     });
+
+    // ── Editable combined preview ────────────────────────────────
+    const reinsertPreviewDebounced = debounce(() => reinsertFromPreview(), 400);
+
+    $('#dynsum_combined_preview').off('input.dynsumEdit').on('input.dynsumEdit', function () {
+        // Mark as dirty so snippet renders don't overwrite it
+        $(this).addClass('dynsum-dirty');
+        reinsertPreviewDebounced();
+    });
+
+    $('#dynsum_save_edit').off('click').on('click', () => {
+        const $ta = $('#dynsum_combined_preview');
+        const text = $ta.val().trim();
+        if (!text) {
+            toastr.warning('Nothing to save — the summary box is empty.', 'Dynamic Summarizer');
+            return;
+        }
+
+        // Save as a new manual snippet covering the full current range
+        const ctx = getContext();
+        const startIdx = getSummarizationStart();
+        const endIdx = Math.max(0, (ctx.chat?.length ?? 1) - 1);
+        addSnippet(text, startIdx, endIdx);
+
+        // Clear dirty flag — snippet list now reflects the saved state
+        $ta.removeClass('dynsum-dirty');
+        reinsertSummary();
+        renderSnippetList();
+        toastr.success('Saved as a new snippet.', 'Dynamic Summarizer');
+    });
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Popout

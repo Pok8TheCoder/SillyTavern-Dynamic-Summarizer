@@ -28,13 +28,19 @@
                     <input id="dynsum_custom_model" class="text_pole" type="text" placeholder="gpt-4o-mini" />
                 </div>
 
-                <!-- ── Current combined summary display ───────── -->
+                <!-- ── Current combined summary display ─────────── -->
                 <div class="flex-container justifyspacebetween alignitemscenter" style="margin-top:6px;">
-                    <span><i class="fa-solid fa-book-open"></i> Active Summary:</span>
-                    <i class="editor_maximize fa-solid fa-maximize right_menu_button" data-for="dynsum_combined_preview" title="Expand"></i>
+                    <span><i class="fa-solid fa-book-open"></i> Active Summary <small class="dynsum_hint">(editable)</small></span>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <div id="dynsum_save_edit" class="menu_button menu_button_icon margin0" title="Save current text as a new snippet">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Save as snippet</span>
+                        </div>
+                        <i class="editor_maximize fa-solid fa-maximize right_menu_button" data-for="dynsum_combined_preview" title="Expand"></i>
+                    </div>
                 </div>
                 <textarea id="dynsum_combined_preview" class="text_pole textarea_compact" rows="4"
-                    placeholder="Enabled snippets will appear here..." readonly></textarea>
+                    placeholder="Enabled snippets appear here. You can edit freely — changes inject into the prompt live. Hit 'Save as snippet' to persist."></textarea>
 
                 <!-- ── Action bar ──────────────────────────────── -->
                 <div class="dynsum_action_bar">

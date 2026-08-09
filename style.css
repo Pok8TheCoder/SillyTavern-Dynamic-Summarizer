@@ -14,7 +14,11 @@
     max-height: 40dvh;
     min-height: 60px;
     resize: vertical;
-    opacity: 0.85;
+}
+
+#dynsum_combined_preview.dynsum-dirty {
+    border-color: var(--SmartThemeUserMesBlurTintColor, #d9a04a) !important;
+    box-shadow: 0 0 0 1px rgba(217,160,74,0.35);
 }
 
 /* ── Action bar ─────────────────────────────────────────────── */

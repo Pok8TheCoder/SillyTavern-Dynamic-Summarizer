@@ -175,6 +175,23 @@ function addSnippet(text, startMsgIdx, endMsgIdx) {
     return snippet;
 }
 
+function updateSnippet(id, text, startMsgIdx, endMsgIdx) {
+    const snippets = loadSnippets();
+    const s = snippets.find(x => x.id === id);
+    if (s) {
+        s.text = text.trim();
+        if (startMsgIdx !== undefined && !isNaN(Number(startMsgIdx))) {
+            s.startMsgIdx = Number(startMsgIdx);
+        }
+        if (endMsgIdx !== undefined && !isNaN(Number(endMsgIdx))) {
+            s.endMsgIdx = Number(endMsgIdx);
+        }
+        saveSnippets(snippets);
+        reinsertSummary();
+        renderSnippetList();
+    }
+}
+
 function deleteSnippet(id) {
     const snippets = loadSnippets().filter(s => s.id !== id);
     saveSnippets(snippets);
@@ -268,7 +285,10 @@ function renderSnippetList() {
                     <div class="dynsum-snippet-preview">${$('<span>').text(preview).html()}</div>
                 </div>
                 <div class="dynsum-snippet-btns">
-                    <button class="dynsum-snippet-btn view" title="View full snippet text">
+                    <button class="dynsum-snippet-btn edit" title="Edit this snippet">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="dynsum-snippet-btn view" title="View snippet">
                         <i class="fa-solid fa-eye"></i>
                     </button>
                     <button class="dynsum-snippet-btn delete" title="Delete this snippet">
@@ -286,23 +306,48 @@ function renderSnippetList() {
             }
         });
 
-        $item.find('.dynsum-snippet-btn.view').on('click', () => {
-            // Show snippet text in a simple popup
+        const openEditModal = () => {
             const $popup = $(`
                 <div style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;">
-                    <div style="background:var(--SmartThemeChatBackground,#1e1e2e);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:20px;max-width:600px;width:90%;max-height:70vh;overflow-y:auto;">
-                        <div style="font-size:0.75em;color:#888;margin-bottom:8px;">${date} · ${range}</div>
-                        <div style="white-space:pre-wrap;font-size:0.9em;line-height:1.5;">${$('<span>').text(snippet.text).html()}</div>
-                        <div style="margin-top:14px;text-align:right;">
-                            <button class="menu_button close-popup">Close</button>
+                    <div style="background:var(--SmartThemeChatBackground,#1e1e2e);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:20px;max-width:650px;width:92%;max-height:80vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+                        <div style="font-size:0.85em;color:var(--SmartThemeQuoteColor,#aaa);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                            <span><i class="fa-solid fa-pen-to-square"></i> <b>Edit Snippet</b></span>
+                            <span style="font-size:0.8em;opacity:0.8;">${date}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;font-size:0.85em;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:6px;">
+                            <label style="margin:0;display:flex;align-items:center;gap:6px;">
+                                Start Msg #:
+                                <input class="text_pole dynsum_modal_start" type="number" min="0" value="${snippet.startMsgIdx}" style="width:75px;padding:2px 6px;" />
+                            </label>
+                            <label style="margin:0;display:flex;align-items:center;gap:6px;">
+                                End Msg #:
+                                <input class="text_pole dynsum_modal_end" type="number" min="0" value="${snippet.endMsgIdx}" style="width:75px;padding:2px 6px;" />
+                            </label>
+                        </div>
+                        <textarea class="text_pole dynsum_modal_textarea" style="width:100%;height:220px;resize:vertical;font-family:inherit;font-size:0.9em;line-height:1.5;padding:10px;">${$('<span>').text(snippet.text).html()}</textarea>
+                        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+                            <button class="menu_button save-snippet-edit"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+                            <button class="menu_button close-popup">Cancel</button>
                         </div>
                     </div>
                 </div>
             `);
+
+            $popup.find('.save-snippet-edit').on('click', () => {
+                const newText = $popup.find('.dynsum_modal_textarea').val();
+                const start = $popup.find('.dynsum_modal_start').val();
+                const end = $popup.find('.dynsum_modal_end').val();
+                updateSnippet(snippet.id, newText, start, end);
+                $popup.remove();
+                toastr.success('Snippet updated.', 'Dynamic Summarizer');
+            });
+
             $popup.find('.close-popup').on('click', () => $popup.remove());
             $popup.on('click', function(e) { if (e.target === this) $popup.remove(); });
             $('body').append($popup);
-        });
+        };
+
+        $item.find('.dynsum-snippet-btn.edit, .dynsum-snippet-btn.view').on('click', openEditModal);
 
         $item.find('.dynsum-snippet-preview').on('click', function () {
             $(this).toggleClass('expanded');

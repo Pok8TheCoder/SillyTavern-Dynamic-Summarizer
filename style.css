@@ -298,6 +298,8 @@
 }
 
 .dynsum-snippet-btn.delete:hover { color: #e05050; }
+.dynsum-snippet-btn.edit:hover   { color: #d9a04a; }
+.dynsum-snippet-btn.view:hover   { color: #4a90d9; }
 .dynsum-snippet-btn.load:hover   { color: #4a90d9; }
 
 /* ── Pick-from-chat overlay ─────────────────────────────────── */

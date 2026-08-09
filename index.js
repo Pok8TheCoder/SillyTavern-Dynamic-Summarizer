@@ -1,22 +1,25 @@
 /**
- * Dynamic Summarizer — SillyTavern Extension
+ * Dynamic Summarizer — SillyTavern Third-Party Extension
  *
- * A fully standalone summarizer extension with:
+ * A fully standalone summarizer with:
  *  - Snippet-based summary history (per-chat, stored in chatMetadata)
- *  - Three API sources: Main API, WebLLM, Custom API
+ *  - Three API sources: Main API, WebLLM, Custom OpenAI-compatible API
  *  - Three auto-trigger modes: manual / every-N-messages / context-pct
  *  - Summarization start-point control (last-end / beginning / custom / pick-from-chat)
  *  - Story Focus Prompt always appended to summarizer system prompt
  *  - Previous snippets shown to AI as context
- *  - Summarize Now button always visible with loading spinner
- *  - Snippet list with enable/disable, preview, load, delete
+ *  - Summarize Now button always visible with spinner
  */
+
+// NOTE: This is a THIRD-PARTY extension. It lives at:
+//   /scripts/extensions/third-party/SillyTavern-Dynamic-Summarizer/index.js
+// So all relative paths need one extra ../ compared to built-in extensions.
 
 import {
     getContext,
     extension_settings,
     renderExtensionTemplateAsync,
-} from '../../extensions.js';
+} from '../../../extensions.js';
 import {
     eventSource,
     event_types,
@@ -30,19 +33,19 @@ import {
     animation_easing,
     extension_prompt_types,
     extension_prompt_roles,
-} from '../../../script.js';
-import { is_group_generating, selected_group } from '../../group-chats.js';
-import { loadMovingUIState, power_user } from '../../power-user.js';
-import { dragElement } from '../../RossAscends-mods.js';
-import { getTokenCountAsync } from '../../tokenizers.js';
-import { debounce_timeout } from '../../constants.js';
-import { debounce, waitUntilCondition, getStringHash, extractAllWords } from '../../utils.js';
-import { generateWebLlmChatPrompt, getWebLlmContextSize, isWebLlmSupported } from '../shared.js';
-import { removeReasoningFromString } from '../../reasoning.js';
-import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../slash-commands/SlashCommand.js';
-import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../slash-commands/SlashCommandArgument.js';
-import { macros, MacroCategory } from '../../macros/macro-system.js';
+} from '../../../../script.js';
+import { is_group_generating, selected_group } from '../../../group-chats.js';
+import { loadMovingUIState, power_user } from '../../../power-user.js';
+import { dragElement } from '../../../RossAscends-mods.js';
+import { getTokenCountAsync } from '../../../tokenizers.js';
+import { debounce_timeout } from '../../../constants.js';
+import { debounce, waitUntilCondition, getStringHash, extractAllWords } from '../../../utils.js';
+import { generateWebLlmChatPrompt, getWebLlmContextSize, isWebLlmSupported } from '../../shared.js';
+import { removeReasoningFromString } from '../../../reasoning.js';
+import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
+import { macros, MacroCategory } from '../../../macros/macro-system.js';
 import { MacrosParser } from '/scripts/macros.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,23 +55,26 @@ import { MacrosParser } from '/scripts/macros.js';
 const MODULE_NAME = 'dynamic_summarizer';
 export { MODULE_NAME };
 
-const TRIGGER_MODES = /** @type {const} */ ({
+/** The GitHub repo folder name — used for renderExtensionTemplateAsync */
+const EXTENSION_FOLDER = 'third-party/SillyTavern-Dynamic-Summarizer';
+
+const TRIGGER_MODES = {
     MANUAL: 'manual',
     MESSAGES: 'messages',
     CONTEXT_PCT: 'context_pct',
-});
+};
 
-const START_MODES = /** @type {const} */ ({
+const START_MODES = {
     LAST_END: 'last_end',
     BEGINNING: 'beginning',
     CUSTOM: 'custom',
-});
+};
 
-const API_SOURCES = /** @type {const} */ ({
+const API_SOURCES = {
     MAIN: 'main',
     WEBLLM: 'webllm',
     CUSTOM: 'custom',
-});
+};
 
 const DEFAULT_PROMPT =
     'Summarize the most important facts, events, and character moments from the conversation below. ' +
@@ -82,32 +88,25 @@ const DEFAULT_TEMPLATE = '[Summary: {{summary}}]';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const defaultSettings = {
-    // API source
     source: API_SOURCES.MAIN,
     customApiUrl: '',
     customApiKey: '',
     customModel: '',
-    // Trigger
     triggerMode: TRIGGER_MODES.MESSAGES,
     interval: 10,
     contextPctThreshold: 75,
-    // Start point
     startMode: START_MODES.LAST_END,
     startCustomIndex: 0,
-    // Prompts
     prompt: DEFAULT_PROMPT,
     promptWords: 200,
     responseLength: 0,
     focusPrompt: '',
-    // Previous snippets fed to AI
     prevSnippetsCount: 2,
-    // Injection
     template: DEFAULT_TEMPLATE,
-    position: extension_prompt_types.IN_PROMPT,   // 0
+    position: 0,   // extension_prompt_types.IN_PROMPT
     depth: 2,
-    role: extension_prompt_roles.SYSTEM,           // 0
+    role: 0,       // extension_prompt_roles.SYSTEM
     wiScan: false,
-    // State
     frozen: false,
 };
 
@@ -118,13 +117,11 @@ const defaultSettings = {
 let inApiCall = false;
 let lastMsgId = null;
 let lastMsgHash = null;
-let pickingFromChat = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** @returns {typeof defaultSettings} */
 function cfg() {
     return extension_settings.dynamic_summarizer;
 }
@@ -148,7 +145,6 @@ function genId() {
     return `ds_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** @returns {Array<object>} */
 function loadSnippets() {
     const ctx = getContext();
     if (!ctx || !ctx.chatMetadata) return [];
@@ -162,13 +158,6 @@ function saveSnippets(snippets) {
     ctx.saveChat();
 }
 
-/**
- * Add a new snippet and persist.
- * @param {string} text
- * @param {number} startMsgIdx
- * @param {number} endMsgIdx
- * @returns {object} The new snippet
- */
 function addSnippet(text, startMsgIdx, endMsgIdx) {
     const snippets = loadSnippets();
     const snippet = {
@@ -215,35 +204,23 @@ function clearAllSnippets() {
     renderSnippetList();
 }
 
-/**
- * Get concatenated text of all enabled snippets (oldest first by default).
- * @returns {string}
- */
 function getEnabledText() {
-    const enabled = loadSnippets().filter(s => s.enabled);
-    return enabled.map(s => s.text).join('\n\n');
+    return loadSnippets()
+        .filter(s => s.enabled)
+        .map(s => s.text)
+        .join('\n\n');
 }
 
-/**
- * Get the N most recent enabled snippets (for feeding to the AI).
- * @param {number} n
- * @returns {Array<object>}
- */
 function getLastNEnabled(n) {
     if (!n || n <= 0) return [];
     return loadSnippets().filter(s => s.enabled).slice(-n);
 }
 
-/**
- * Determine the next summarization start index.
- * @returns {number}
- */
 function getSummarizationStart() {
     const mode = cfg().startMode;
     if (mode === START_MODES.BEGINNING) return 0;
     if (mode === START_MODES.CUSTOM) return Math.max(0, cfg().startCustomIndex || 0);
 
-    // LAST_END: find endMsgIdx of the most recent enabled snippet
     const enabled = loadSnippets().filter(s => s.enabled);
     if (enabled.length > 0) {
         const last = enabled.reduce((a, b) => (b.endMsgIdx > a.endMsgIdx ? b : a));
@@ -262,12 +239,10 @@ function renderSnippetList() {
     $list.empty();
 
     const snippets = loadSnippets();
-    if (!snippets.length) {
-        updateCombinedPreview();
-        return;
-    }
+    updateCombinedPreview();
 
-    // Newest first in UI
+    if (!snippets.length) return;
+
     [...snippets].reverse().forEach(snippet => {
         const date = new Date(snippet.timestamp).toLocaleString([], {
             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -278,16 +253,16 @@ function renderSnippetList() {
         const $item = $(`
             <div class="dynsum-snippet ${snippet.enabled ? '' : 'disabled'}" data-id="${snippet.id}">
                 <input type="checkbox" class="dynsum-snippet-toggle" ${snippet.enabled ? 'checked' : ''}
-                    title="${snippet.enabled ? 'Disable this snippet' : 'Enable this snippet'}">
+                    title="${snippet.enabled ? 'Click to disable' : 'Click to enable'}">
                 <div class="dynsum-snippet-body">
                     <div class="dynsum-snippet-meta">${date}&nbsp;·&nbsp;${range}</div>
                     <div class="dynsum-snippet-preview">${$('<span>').text(preview).html()}</div>
                 </div>
                 <div class="dynsum-snippet-btns">
-                    <button class="dynsum-snippet-btn load" title="Load this snippet into a popup for editing/viewing">
+                    <button class="dynsum-snippet-btn view" title="View full snippet text">
                         <i class="fa-solid fa-eye"></i>
                     </button>
-                    <button class="dynsum-snippet-btn delete" title="Delete this snippet permanently">
+                    <button class="dynsum-snippet-btn delete" title="Delete this snippet">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </div>
@@ -296,18 +271,28 @@ function renderSnippetList() {
 
         $item.find('.dynsum-snippet-toggle').on('change', () => toggleSnippet(snippet.id));
 
-        $item.find('.dynsum-snippet-btn.delete').on('click', async () => {
-            const ok = await callConfirmPopup('Delete this summary snippet?', 'dynsum_del');
-            if (ok) deleteSnippet(snippet.id);
+        $item.find('.dynsum-snippet-btn.delete').on('click', () => {
+            if (confirm('Delete this summary snippet?')) {
+                deleteSnippet(snippet.id);
+            }
         });
 
-        $item.find('.dynsum-snippet-btn.load').on('click', () => {
-            callGenericPopup(
-                `<div style="max-height:60vh;overflow-y:auto;white-space:pre-wrap;font-size:0.9em;">${$('<span>').text(snippet.text).html()}</div>`,
-                POPUP_TYPE.TEXT,
-                '',
-                { wide: true, large: true, okButton: 'Close' },
-            );
+        $item.find('.dynsum-snippet-btn.view').on('click', () => {
+            // Show snippet text in a simple popup
+            const $popup = $(`
+                <div style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;">
+                    <div style="background:var(--SmartThemeChatBackground,#1e1e2e);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:20px;max-width:600px;width:90%;max-height:70vh;overflow-y:auto;">
+                        <div style="font-size:0.75em;color:#888;margin-bottom:8px;">${date} · ${range}</div>
+                        <div style="white-space:pre-wrap;font-size:0.9em;line-height:1.5;">${$('<span>').text(snippet.text).html()}</div>
+                        <div style="margin-top:14px;text-align:right;">
+                            <button class="menu_button close-popup">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+            $popup.find('.close-popup').on('click', () => $popup.remove());
+            $popup.on('click', function(e) { if (e.target === this) $popup.remove(); });
+            $('body').append($popup);
         });
 
         $item.find('.dynsum-snippet-preview').on('click', function () {
@@ -316,25 +301,11 @@ function renderSnippetList() {
 
         $list.append($item);
     });
-
-    updateCombinedPreview();
 }
 
 function updateCombinedPreview() {
     const text = getEnabledText();
     $('#dynsum_combined_preview').val(text || '');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Popup helpers (use ST's built-in popup if available, fallback to confirm)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function callConfirmPopup(text) {
-    if (typeof callGenericPopup !== 'undefined' && typeof POPUP_TYPE !== 'undefined') {
-        const result = await callGenericPopup(text, POPUP_TYPE.CONFIRM);
-        return !!result;
-    }
-    return confirm(text);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -364,15 +335,9 @@ function reinsertSummary() {
 // System prompt builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Build the full system prompt for the summarizer.
- * @param {string} basePrompt Already has {{words}} substituted
- * @returns {string}
- */
 function buildSystemPrompt(basePrompt) {
     const parts = [basePrompt];
 
-    // Feed previous snippets as context
     const n = cfg().prevSnippetsCount ?? 2;
     const prev = getLastNEnabled(n);
     if (prev.length > 0) {
@@ -383,7 +348,6 @@ function buildSystemPrompt(basePrompt) {
         );
     }
 
-    // Story focus guidance
     const focus = (cfg().focusPrompt || '').trim();
     if (focus) {
         parts.push(`--- Story Focus Guidance ---\n${focus}`);
@@ -393,12 +357,11 @@ function buildSystemPrompt(basePrompt) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Token counting
+// Token counting / context size
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function countTokens(text, padding = 0) {
     if (cfg().source === API_SOURCES.WEBLLM) {
-        // WebLLM doesn't expose a standalone counter; approximate via GPT-2 ratio
         return Math.ceil(text.length / 3.5) + padding;
     }
     return getTokenCountAsync(text, padding);
@@ -413,14 +376,9 @@ async function getContextSize() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auto-trigger logic
+// Auto-trigger conditions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Check context-pct condition.
- * @param {object} ctx ST context
- * @returns {boolean}
- */
 function shouldTriggerContextPct(ctx) {
     const lastInCtx = ctx.chatMetadata?.lastInContextMessageId ?? ctx.chat.length;
     const startIdx = getSummarizationStart();
@@ -433,31 +391,18 @@ function shouldTriggerContextPct(ctx) {
     return pct >= threshold;
 }
 
-/**
- * Check messages-interval condition.
- * @param {object} ctx ST context
- * @returns {boolean}
- */
 function shouldTriggerMessages(ctx) {
     const interval = cfg().interval || 0;
     if (interval === 0) return false;
     const startIdx = getSummarizationStart();
     let msgsSince = 0;
-    let wordsSince = 0;
-    for (let i = ctx.chat.length - 1; i >= startIdx; i--) {
-        msgsSince++;
-        wordsSince += extractAllWords(ctx.chat[i]?.mes || '').length;
+    for (let i = startIdx; i < ctx.chat.length; i++) {
+        if (!ctx.chat[i]?.is_system) msgsSince++;
     }
-    console.debug(`[DynSum] messages trigger: ${msgsSince} msgs since start (interval ${interval})`);
+    console.debug(`[DynSum] messages: ${msgsSince} msgs since start (interval ${interval})`);
     return msgsSince >= interval;
 }
 
-/**
- * Decide whether to run and return the fully built system prompt, or '' to skip.
- * @param {object} ctx
- * @param {boolean} force
- * @returns {Promise<string>}
- */
 async function getPromptIfShouldRun(ctx, force) {
     const mode = cfg().triggerMode;
 
@@ -467,7 +412,6 @@ async function getPromptIfShouldRun(ctx, force) {
         if (mode === TRIGGER_MODES.CONTEXT_PCT && !shouldTriggerContextPct(ctx)) return '';
     }
 
-    // Wait for group/send to settle
     try {
         if (selected_group) {
             await waitUntilCondition(() => is_group_generating === false, 1000, 10);
@@ -486,19 +430,12 @@ async function getPromptIfShouldRun(ctx, force) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build chat content to summarize
+// Build chat content string to send to API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Build the user content (chat messages) to send to the summarizer.
- * Returns the text plus the last included message index.
- * @param {object} ctx
- * @param {string} sysPrompt
- * @returns {Promise<{content: string, endIdx: number} | null>}
- */
 async function buildChatContent(ctx, sysPrompt) {
     const chat = ctx.chat.slice();
-    chat.pop(); // always exclude the last (just-received) message
+    chat.pop(); // exclude the just-received message
 
     const startIdx = getSummarizationStart();
     const PADDING = 64;
@@ -521,29 +458,18 @@ async function buildChatContent(ctx, sysPrompt) {
             break;
         }
 
-        lastUsed = { msg, idx: i };
-
-        if (cfg().maxMessages > 0 && buffer.length >= cfg().maxMessages) break;
+        lastUsed = { idx: i };
     }
 
-    if (!lastUsed) return null;
+    if (!lastUsed || !buffer.length) return null;
 
-    return {
-        content: buffer.join('\n\n'),
-        endIdx: lastUsed.idx,
-    };
+    return { content: buffer.join('\n\n'), endIdx: lastUsed.idx };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API calls
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Call the main ST API (same as chat).
- * @param {string} sysPrompt
- * @param {string} userContent
- * @returns {Promise<string>}
- */
 async function callMainApi(sysPrompt, userContent) {
     const raw = await generateRaw({
         prompt: userContent,
@@ -553,30 +479,20 @@ async function callMainApi(sysPrompt, userContent) {
     return removeReasoningFromString(raw);
 }
 
-/**
- * Call WebLLM.
- * @param {string} sysPrompt
- * @param {string} userContent
- * @returns {Promise<string>}
- */
 async function callWebLlmApi(sysPrompt, userContent) {
     const messages = [
         { role: 'system', content: sysPrompt },
         { role: 'user', content: userContent },
     ].filter(m => m.content);
-
     const params = cfg().responseLength > 0 ? { max_tokens: cfg().responseLength } : {};
-    return await generateWebLlmChatPrompt(messages, params);
+    return generateWebLlmChatPrompt(messages, params);
 }
 
-/**
- * Call a custom OpenAI-compatible API.
- * @param {string} sysPrompt
- * @param {string} userContent
- * @returns {Promise<string>}
- */
 async function callCustomApi(sysPrompt, userContent) {
-    const url = (cfg().customApiUrl || '').replace(/\/$/, '') + '/chat/completions';
+    const base = (cfg().customApiUrl || '').replace(/\/$/, '');
+    if (!base) throw new Error('Custom API URL is not configured.');
+
+    const url = `${base}/chat/completions`;
     const key = cfg().customApiKey || '';
     const model = cfg().customModel || 'gpt-4o-mini';
 
@@ -624,14 +540,9 @@ function isContextChanged(snapshot) {
 // Main summarize routine
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Run summarization. If force=true, ignores trigger conditions.
- * @param {boolean} [force]
- * @returns {Promise<string>} The generated summary text, or ''
- */
 async function runSummarize(force = false) {
     if (inApiCall) {
-        console.debug('[DynSum] Already in API call, skipping.');
+        console.debug('[DynSum] Already summarizing, skipping.');
         return '';
     }
 
@@ -648,14 +559,12 @@ async function runSummarize(force = false) {
 
     const chatContent = await buildChatContent(ctx, sysPrompt);
     if (!chatContent) {
-        if (force) {
-            toastr.info('No new messages to summarize since last snippet.');
-        }
+        if (force) toastr.info('No new messages to summarize since the last snippet.', 'Dynamic Summarizer');
         return '';
     }
 
-    let summary = '';
     inApiCall = true;
+    let summary = '';
 
     try {
         switch (source) {
@@ -674,7 +583,7 @@ async function runSummarize(force = false) {
         }
     } catch (err) {
         console.error('[DynSum] Summarization failed:', err);
-        toastr.error(String(err), 'Summarization failed');
+        toastr.error(String(err), 'Dynamic Summarizer failed');
         return '';
     } finally {
         inApiCall = false;
@@ -690,9 +599,8 @@ async function runSummarize(force = false) {
         return '';
     }
 
-    // Save as a new snippet
     const snippet = addSnippet(summary, getSummarizationStart(), chatContent.endIdx);
-    console.log(`[DynSum] New snippet created: ${snippet.id} (msg ${snippet.startMsgIdx}–${snippet.endMsgIdx})`);
+    console.log(`[DynSum] Snippet created: ${snippet.id} (msg ${snippet.startMsgIdx}–${snippet.endMsgIdx})`);
 
     reinsertSummary();
     renderSnippetList();
@@ -701,7 +609,7 @@ async function runSummarize(force = false) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chat event handlers
+// Chat events
 // ─────────────────────────────────────────────────────────────────────────────
 
 function onChatChanged() {
@@ -710,8 +618,6 @@ function onChatChanged() {
     lastMsgId = null;
     lastMsgHash = null;
 }
-
-const saveChatDebounced = debounce(() => getContext().saveChat(), debounce_timeout.relaxed);
 
 async function onChatEvent() {
     if (streamingProcessor && !streamingProcessor.isFinished) return;
@@ -724,7 +630,6 @@ async function onChatEvent() {
     const lastMsg = ctx.chat[ctx.chat.length - 1];
     const msgHash = getStringHash(lastMsg.mes || '');
 
-    // No change
     if (lastMsgId === ctx.chat.length && msgHash === lastMsgHash) return;
 
     lastMsgId = ctx.chat.length;
@@ -738,7 +643,6 @@ async function onChatEvent() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function enterPickMode() {
-    pickingFromChat = true;
     $('body').addClass('dynsum_picking');
     $('#dynsum_pick_bar').removeClass('hidden');
 
@@ -748,28 +652,37 @@ function enterPickMode() {
             extension_settings.dynamic_summarizer.startCustomIndex = mesId;
             $('#dynsum_start_index').val(mesId);
             saveSettingsDebounced();
-            toastr.info(`Summarization start set to message #${mesId}.`);
+            toastr.info(`Start point set to message #${mesId}.`, 'Dynamic Summarizer');
         }
         exitPickMode();
     });
 }
 
 function exitPickMode() {
-    pickingFromChat = false;
     $('body').removeClass('dynsum_picking');
     $('#dynsum_pick_bar').addClass('hidden');
     $('#chat').off('click.dynsum_pick');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings load / save
+// Settings UI
 // ─────────────────────────────────────────────────────────────────────────────
+
+function applyTriggerModeUI(mode) {
+    $('#dynsum_messages_row').toggle(mode === TRIGGER_MODES.MESSAGES);
+    $('#dynsum_pct_row').toggle(mode === TRIGGER_MODES.CONTEXT_PCT);
+}
+
+function applyStartModeUI(mode) {
+    $('#dynsum_custom_start_row').toggle(mode === START_MODES.CUSTOM);
+}
 
 function loadSettings() {
     ensureSettings();
     const s = cfg();
 
-    $('#dynsum_source').val(s.source).trigger('change');
+    $('#dynsum_source').val(s.source);
+    $('#dynsum_custom_api_row').toggle(s.source === API_SOURCES.CUSTOM);
     $('#dynsum_custom_api_url').val(s.customApiUrl || '');
     $('#dynsum_custom_api_key').val(s.customApiKey || '');
     $('#dynsum_custom_model').val(s.customModel || '');
@@ -791,7 +704,6 @@ function loadSettings() {
     $('#dynsum_prompt_words_val').text(s.promptWords);
     $('#dynsum_response_length').val(s.responseLength);
     $('#dynsum_response_length_val').text(s.responseLength);
-
     $('#dynsum_focus_prompt').val(s.focusPrompt || '');
     $('#dynsum_prev_snippets').val(s.prevSnippetsCount ?? 2);
     $('#dynsum_prev_snippets_val').text(s.prevSnippetsCount ?? 2);
@@ -807,186 +719,112 @@ function loadSettings() {
     reinsertSummary();
 }
 
-function applyTriggerModeUI(mode) {
-    $('#dynsum_messages_row').toggle(mode === TRIGGER_MODES.MESSAGES);
-    $('#dynsum_pct_row').toggle(mode === TRIGGER_MODES.CONTEXT_PCT);
-}
-
-function applyStartModeUI(mode) {
-    $('#dynsum_custom_start_row').toggle(mode === START_MODES.CUSTOM);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Event listener wiring
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setupListeners() {
-    // Source
     $('#dynsum_source').off('change').on('change', function () {
         cfg().source = $(this).val();
         $('#dynsum_custom_api_row').toggle(cfg().source === API_SOURCES.CUSTOM);
         saveSettingsDebounced();
     });
+    $('#dynsum_custom_api_url').off('input').on('input', function () { cfg().customApiUrl = $(this).val(); saveSettingsDebounced(); });
+    $('#dynsum_custom_api_key').off('input').on('input', function () { cfg().customApiKey = $(this).val(); saveSettingsDebounced(); });
+    $('#dynsum_custom_model').off('input').on('input', function () { cfg().customModel = $(this).val(); saveSettingsDebounced(); });
 
-    $('#dynsum_custom_api_url').off('input').on('input', function () {
-        cfg().customApiUrl = $(this).val();
-        saveSettingsDebounced();
-    });
-    $('#dynsum_custom_api_key').off('input').on('input', function () {
-        cfg().customApiKey = $(this).val();
-        saveSettingsDebounced();
-    });
-    $('#dynsum_custom_model').off('input').on('input', function () {
-        cfg().customModel = $(this).val();
-        saveSettingsDebounced();
-    });
-
-    // Trigger mode
     $('input[name="dynsum_trigger_mode"]').off('change').on('change', function () {
         cfg().triggerMode = $(this).val();
         applyTriggerModeUI(cfg().triggerMode);
         saveSettingsDebounced();
     });
-
     $('#dynsum_interval').off('input').on('input', function () {
         cfg().interval = Number($(this).val());
         $('#dynsum_interval_val').text(cfg().interval);
         saveSettingsDebounced();
     });
-
     $('#dynsum_context_pct').off('input').on('input', function () {
         cfg().contextPctThreshold = Number($(this).val());
         $('#dynsum_context_pct_val').text(cfg().contextPctThreshold);
         saveSettingsDebounced();
     });
 
-    // Start mode
     $('input[name="dynsum_start_mode"]').off('change').on('change', function () {
         cfg().startMode = $(this).val();
         applyStartModeUI(cfg().startMode);
         saveSettingsDebounced();
     });
-
     $('#dynsum_start_index').off('input').on('input', function () {
         cfg().startCustomIndex = Number($(this).val());
         saveSettingsDebounced();
     });
+    $('#dynsum_pick_from_chat').off('click').on('click', enterPickMode);
+    $('#dynsum_pick_cancel').off('click').on('click', exitPickMode);
 
-    $('#dynsum_pick_from_chat').off('click').on('click', () => {
-        enterPickMode();
-    });
-
-    $('#dynsum_pick_cancel').off('click').on('click', () => exitPickMode());
-
-    // Prompts
-    $('#dynsum_prompt').off('input').on('input', function () {
-        cfg().prompt = $(this).val();
-        saveSettingsDebounced();
-    });
-
+    $('#dynsum_prompt').off('input').on('input', function () { cfg().prompt = $(this).val(); saveSettingsDebounced(); });
     $('#dynsum_prompt_restore').off('click').on('click', () => {
         cfg().prompt = DEFAULT_PROMPT;
         $('#dynsum_prompt').val(DEFAULT_PROMPT);
         saveSettingsDebounced();
     });
-
     $('#dynsum_prompt_words').off('input').on('input', function () {
         cfg().promptWords = Number($(this).val());
         $('#dynsum_prompt_words_val').text(cfg().promptWords);
         saveSettingsDebounced();
     });
-
     $('#dynsum_response_length').off('input').on('input', function () {
         cfg().responseLength = Number($(this).val());
         $('#dynsum_response_length_val').text(cfg().responseLength);
         saveSettingsDebounced();
     });
-
-    $('#dynsum_focus_prompt').off('input').on('input', function () {
-        cfg().focusPrompt = $(this).val();
-        saveSettingsDebounced();
-    });
-
+    $('#dynsum_focus_prompt').off('input').on('input', function () { cfg().focusPrompt = $(this).val(); saveSettingsDebounced(); });
     $('#dynsum_prev_snippets').off('input').on('input', function () {
         cfg().prevSnippetsCount = Number($(this).val());
         $('#dynsum_prev_snippets_val').text(cfg().prevSnippetsCount);
         saveSettingsDebounced();
     });
 
-    // Injection
-    $('#dynsum_template').off('input').on('input', function () {
-        cfg().template = $(this).val();
-        reinsertSummary();
-        saveSettingsDebounced();
-    });
+    $('#dynsum_template').off('input').on('input', function () { cfg().template = $(this).val(); reinsertSummary(); saveSettingsDebounced(); });
+    $('input[name="dynsum_position"]').off('change').on('change', function () { cfg().position = $(this).val(); reinsertSummary(); saveSettingsDebounced(); });
+    $('#dynsum_depth').off('input').on('input', function () { cfg().depth = Number($(this).val()); reinsertSummary(); saveSettingsDebounced(); });
+    $('#dynsum_role').off('change').on('change', function () { cfg().role = Number($(this).val()); reinsertSummary(); saveSettingsDebounced(); });
+    $('#dynsum_wi_scan').off('change').on('change', function () { cfg().wiScan = $(this).prop('checked'); reinsertSummary(); saveSettingsDebounced(); });
+    $('#dynsum_frozen').off('change').on('change', function () { cfg().frozen = $(this).prop('checked'); saveSettingsDebounced(); });
 
-    $('input[name="dynsum_position"]').off('change').on('change', function () {
-        cfg().position = $(this).val();
-        reinsertSummary();
-        saveSettingsDebounced();
-    });
-
-    $('#dynsum_depth').off('input').on('input', function () {
-        cfg().depth = Number($(this).val());
-        reinsertSummary();
-        saveSettingsDebounced();
-    });
-
-    $('#dynsum_role').off('change').on('change', function () {
-        cfg().role = Number($(this).val());
-        reinsertSummary();
-        saveSettingsDebounced();
-    });
-
-    $('#dynsum_wi_scan').off('change').on('change', function () {
-        cfg().wiScan = $(this).prop('checked');
-        reinsertSummary();
-        saveSettingsDebounced();
-    });
-
-    $('#dynsum_frozen').off('change').on('change', function () {
-        cfg().frozen = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    // Summarize Now
     $('#dynsum_summarize_now').off('click').on('click', async () => {
         if (inApiCall) return;
-        $('#dynsum_summarize_now').addClass('summarizing');
+        const $btn = $('#dynsum_summarize_now');
+        $btn.addClass('summarizing');
         try {
             await runSummarize(true);
         } finally {
-            $('#dynsum_summarize_now').removeClass('summarizing');
+            $btn.removeClass('summarizing');
         }
     });
 
-    // Snippet bulk actions
     $('#dynsum_snippets_all_on').off('click').on('click', () => setAllSnippets(true));
     $('#dynsum_snippets_all_off').off('click').on('click', () => setAllSnippets(false));
-    $('#dynsum_snippets_clear').off('click').on('click', async () => {
-        const ok = await callConfirmPopup('Delete ALL summary snippets? This cannot be undone.');
-        if (ok) clearAllSnippets();
+    $('#dynsum_snippets_clear').off('click').on('click', () => {
+        if (confirm('Delete ALL summary snippets? This cannot be undone.')) clearAllSnippets();
     });
 
-    // Settings toggle
     $('#dynsum_settings_toggle').off('click').on('click', () => {
         $('#dynsum_settings_block').slideToggle(200, 'swing');
     });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Popout support
+// Popout
 // ─────────────────────────────────────────────────────────────────────────────
 
 function doPopout(e) {
-    const target = e.target;
     if ($('#dynsum_popout').length === 0) {
-        const originalContent = $(target).parent().parent().parent().find('.inline-drawer-content');
+        const originalContent = $(e.target).closest('.inline-drawer').find('.inline-drawer-content');
         const htmlClone = originalContent.html();
         const template = $('#zoomed_avatar_template').html();
 
         const controlBar = `<div class="panelControlBar flex-container">
-            <div id="dynsum_popout_header" class="fa-solid fa-grip drag-grabber hoverglow"></div>
+            <div class="fa-solid fa-grip drag-grabber hoverglow"></div>
             <div id="dynsum_popout_close" class="fa-solid fa-circle-xmark hoverglow dragClose"></div>
         </div>`;
 
@@ -1001,7 +839,6 @@ function doPopout(e) {
         newEl.append(controlBar).append(htmlClone);
         $('#movingDivs').append(newEl);
         newEl.transition({ opacity: 1, duration: animation_duration, easing: animation_easing });
-
         $('#dynsum_drawer_contents').addClass('scrollableInnerFull');
         setupListeners();
         loadSettings();
@@ -1023,41 +860,33 @@ function doPopout(e) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Slash command + macro
+// Slash command
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function summarizeSlashCommand(args, text) {
-    text = text.trim();
+    text = (text || '').trim();
 
-    // If text is provided, summarize that text directly using the configured source
     if (text) {
-        const basePrompt = substituteParamsExtended(cfg().prompt || DEFAULT_PROMPT, { words: cfg().promptWords });
-        const sysPrompt = buildSystemPrompt(basePrompt);
+        const base = substituteParamsExtended(cfg().prompt || DEFAULT_PROMPT, { words: cfg().promptWords });
+        const sysPrompt = buildSystemPrompt(base);
         try {
             switch (cfg().source) {
-                case API_SOURCES.MAIN:
-                    return await callMainApi(sysPrompt, text);
-                case API_SOURCES.WEBLLM:
-                    return await callWebLlmApi(sysPrompt, text);
-                case API_SOURCES.CUSTOM:
-                    return await callCustomApi(sysPrompt, text);
+                case API_SOURCES.MAIN:    return await callMainApi(sysPrompt, text);
+                case API_SOURCES.WEBLLM:  return await callWebLlmApi(sysPrompt, text);
+                case API_SOURCES.CUSTOM:  return await callCustomApi(sysPrompt, text);
             }
         } catch (err) {
-            toastr.error(String(err), 'Summarization failed');
+            toastr.error(String(err), 'Dynamic Summarizer');
             return '';
         }
     }
 
-    // Otherwise force-summarize current chat
-    const quiet = String(args.quiet || 'false').toLowerCase() === 'true';
-    if (!quiet) toastr.info('Summarizing chat...', 'Dynamic Summarizer', { timeOut: 0, extendedTimeOut: 0 });
-
-    $('#dynsum_summarize_now').addClass('summarizing');
+    const $btn = $('#dynsum_summarize_now');
+    $btn.addClass('summarizing');
     try {
         return await runSummarize(true);
     } finally {
-        $('#dynsum_summarize_now').removeClass('summarizing');
-        if (!quiet) toastr.clear();
+        $btn.removeClass('summarizing');
     }
 }
 
@@ -1068,27 +897,23 @@ async function summarizeSlashCommand(args, text) {
 export async function init() {
     ensureSettings();
 
-    // Render settings HTML into the extensions panel
-    const html = await renderExtensionTemplateAsync('dynamic-summarizer', 'settings', {});
-    $('#summarize_container').append(html);
+    const html = await renderExtensionTemplateAsync(EXTENSION_FOLDER, 'settings', {});
+    $('#extensions_settings2').append(html);
 
     setupListeners();
     loadSettings();
 
-    // Popout button
     $('#dynsum_popout_btn').off('click').on('click', function (e) {
         doPopout(e);
         e.stopPropagation();
     });
 
-    // Chat events
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     eventSource.makeLast(event_types.CHARACTER_MESSAGE_RENDERED, onChatEvent);
     for (const ev of [event_types.MESSAGE_DELETED, event_types.MESSAGE_UPDATED, event_types.MESSAGE_SWIPED]) {
         eventSource.on(ev, onChatEvent);
     }
 
-    // Slash command
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dynsum',
         callback: summarizeSlashCommand,
@@ -1101,24 +926,23 @@ export async function init() {
             }),
         ],
         unnamedArgumentList: [
-            new SlashCommandArgument('text to summarize (optional)', [ARGUMENT_TYPE.STRING], false),
+            new SlashCommandArgument('text to summarize (optional — omit to summarize current chat)', [ARGUMENT_TYPE.STRING], false),
         ],
-        helpString: 'Dynamic Summarizer: summarize the current chat, or provide text to summarize inline.',
+        helpString: 'Dynamic Summarizer: force-summarize the current chat, or provide text to summarize inline.',
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // Macro {{dynsum}} → current combined snippet text
+    // Macro {{dynsum}} → combined enabled snippet text
     const macroHandler = () => getEnabledText() || '';
-
     if (power_user?.experimental_macro_engine) {
         macros.register('dynsum', {
             category: MacroCategory.CHAT,
-            description: 'Returns the current Dynamic Summarizer combined summary text.',
+            description: 'Returns the Dynamic Summarizer combined summary text.',
             handler: macroHandler,
         });
     } else {
-        MacrosParser.registerMacro('dynsum', macroHandler, 'Returns the current Dynamic Summarizer summary.');
+        MacrosParser.registerMacro('dynsum', macroHandler, 'Returns the Dynamic Summarizer summary.');
     }
 
-    console.log('[DynSum] Dynamic Summarizer extension initialized.');
+    console.log('[DynSum] Dynamic Summarizer initialized.');
 }

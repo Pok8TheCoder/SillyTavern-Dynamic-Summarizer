@@ -464,15 +464,72 @@ async function getContextSize() {
 // Auto-trigger conditions
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Rough token estimate via character count (~4 chars/token).
+ * Used for sync context-boundary calculations without async tokenizer calls.
+ */
+function estimateTokens(str) {
+    return Math.ceil((str || '').length / 4);
+}
+
+/**
+ * Compute the first message index that is currently within the context window
+ * by counting character-estimated tokens from the newest message backward.
+ * Returns 0 if all messages fit; returns i+1 where i is the first msg that
+ * pushed the total over the limit (i.e., msgs 0..i are out of context).
+ */
+function computeContextBoundary(ctx) {
+    const maxTokens = getMaxPromptTokens(null);
+    if (!maxTokens || maxTokens <= 0) return 0;
+    const chat = ctx.chat;
+    let tokens = 0;
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (!msg || msg.is_system) continue;
+        tokens += estimateTokens(`${msg.name}:\n${msg.mes || ''}`);
+        if (tokens > maxTokens) {
+            return i + 1; // msgs 0..i are beyond context; context starts at i+1
+        }
+    }
+    return 0; // all messages fit
+}
+
+/**
+ * Compute the message index at which approximately `fraction` (0–1) of the
+ * context tokens have been consumed counting from the bottom (newest first).
+ * Used for the half_context end mode.
+ */
+function computeContextFractionBoundary(ctx, fraction) {
+    const maxTokens = getMaxPromptTokens(null);
+    if (!maxTokens || maxTokens <= 0) return Math.max(0, ctx.chat.length - 2);
+    const target = maxTokens * fraction;
+    const chat = ctx.chat;
+    let tokens = 0;
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (!msg || msg.is_system) continue;
+        tokens += estimateTokens(`${msg.name}:\n${msg.mes || ''}`);
+        if (tokens >= target) {
+            // msg i is at the fraction boundary — everything before i is the summary target
+            return Math.max(0, i - 1);
+        }
+    }
+    return 0;
+}
+
 function shouldTriggerContextPct(ctx) {
-    const lastInCtx = ctx.chatMetadata?.lastInContextMessageId ?? ctx.chat.length;
+    // Compute which message is the first one inside the context window.
+    // We do this ourselves because ST never writes lastInContextMessageId
+    // to chatMetadata, so we can't rely on that field.
+    const lastInCtx = computeContextBoundary(ctx);
     const startIdx = getSummarizationStart();
     const totalSince = ctx.chat.length - startIdx;
     if (totalSince <= 0) return false;
-    const outOfCtx = Math.max(0, lastInCtx - startIdx);
+    // outOfCtx = how many messages since startIdx are now outside the window
+    const outOfCtx = lastInCtx > startIdx ? lastInCtx - startIdx : 0;
     const pct = (outOfCtx / totalSince) * 100;
     const threshold = cfg().contextPctThreshold ?? 75;
-    console.debug(`[DynSum] context_pct: ${outOfCtx}/${totalSince} = ${pct.toFixed(1)}% (threshold ${threshold}%)`);
+    console.debug(`[DynSum] context_pct: boundary=${lastInCtx}, outOfCtx=${outOfCtx}/${totalSince} = ${pct.toFixed(1)}% (threshold ${threshold}%)`);
     return pct >= threshold;
 }
 
@@ -528,17 +585,19 @@ async function buildChatContent(ctx, sysPrompt, startIdxOverride = null) {
         maxIdx = chat.length - 1;
     } else if (endMode === 'custom') {
         maxIdx = Math.min(cfg().endCustomIndex || 0, chat.length - 1);
+    } else if (endMode === 'half_context') {
+        // End at the message that sits at the 50% context boundary
+        maxIdx = computeContextFractionBoundary(ctx, 0.5);
+        if (maxIdx <= 0) maxIdx = Math.max(0, chat.length - 2);
     } else {
         // auto: end at the last message that has FALLEN OUT of context.
-        // lastInContextMessageId is the index where the context window currently starts —
-        // everything before it is out of context and should be summarized.
-        const lastInCtx = ctx.chatMetadata?.lastInContextMessageId;
-        if (lastInCtx != null && lastInCtx > 0) {
+        // We compute this ourselves (ST doesn't store lastInContextMessageId).
+        const boundary = computeContextBoundary(ctx);
+        if (boundary > 0) {
             // Summarize up to (but not including) the first in-context message
-            maxIdx = lastInCtx - 1;
+            maxIdx = boundary - 1;
         } else {
             // Nothing has rolled out of context yet — fall back to second-to-last message
-            // (exclude the just-received message so we don't summarize an incomplete exchange)
             maxIdx = chat.length - 2;
         }
     }
@@ -952,9 +1011,7 @@ function loadSettings() {
     $('#dynsum_prompt').val(s.prompt);
     $('#dynsum_compact_prompt').val(s.compactPrompt || DEFAULT_COMPACT_PROMPT);
     $('#dynsum_prompt_words').val(s.promptWords);
-    $('#dynsum_prompt_words_val').text(s.promptWords);
     $('#dynsum_response_length').val(s.responseLength);
-    $('#dynsum_response_length_val').text(s.responseLength);
     $('#dynsum_focus_prompt').val(s.focusPrompt || '');
     $('#dynsum_prev_snippets').val(s.prevSnippetsCount ?? 2);
     $('#dynsum_prev_snippets_val').text(s.prevSnippetsCount ?? 2);
@@ -1032,13 +1089,11 @@ function setupListeners() {
         saveSettingsDebounced();
     });
     $('#dynsum_prompt_words').off('input').on('input', function () {
-        cfg().promptWords = Number($(this).val());
-        $('#dynsum_prompt_words_val').text(cfg().promptWords);
+        cfg().promptWords = Number($(this).val()) || 200;
         saveSettingsDebounced();
     });
     $('#dynsum_response_length').off('input').on('input', function () {
-        cfg().responseLength = Number($(this).val());
-        $('#dynsum_response_length_val').text(cfg().responseLength);
+        cfg().responseLength = Number($(this).val()) || 0;
         saveSettingsDebounced();
     });
     $('#dynsum_focus_prompt').off('input').on('input', function () { cfg().focusPrompt = $(this).val(); saveSettingsDebounced(); });

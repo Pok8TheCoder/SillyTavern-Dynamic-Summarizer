@@ -137,7 +137,11 @@
                     <div class="dynsum_radio_group">
                         <label>
                             <input type="radio" name="dynsum_end_mode" value="auto" />
-                            <span>Auto — include as many messages as fit in context (default)</span>
+                            <span>Auto — stop at oldest message now out of context</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="dynsum_end_mode" value="half_context" />
+                            <span>Half context — stop at the 50% context boundary <small class="dynsum_hint">(leaves newer half in context)</small></span>
                         </label>
                         <label>
                             <input type="radio" name="dynsum_end_mode" value="last_msg" />
@@ -170,15 +174,14 @@
                         placeholder="Summarize the story so far..."></textarea>
 
                     <label for="dynsum_prompt_words">
-                        Target length: <span id="dynsum_prompt_words_val"></span> words
+                        Target length: <input id="dynsum_prompt_words" class="text_pole dynsum_num_input" type="number" min="1" value="200" style="width:80px;" /> words
+                        <small class="dynsum_hint">No upper limit</small>
                     </label>
-                    <input id="dynsum_prompt_words" type="range" min="25" max="2000" step="25" value="200" />
 
                     <label for="dynsum_response_length">
-                        API response length: <span id="dynsum_response_length_val"></span> tokens
-                        <small class="dynsum_hint">0 = default</small>
+                        API response length: <input id="dynsum_response_length" class="text_pole dynsum_num_input" type="number" min="0" value="0" style="width:80px;" /> tokens
+                        <small class="dynsum_hint">0 = model default, no upper limit</small>
                     </label>
-                    <input id="dynsum_response_length" type="range" min="0" max="4096" step="64" value="0" />
 
                     <!-- ── Master Summary Prompt ────────────────── -->
                     <label for="dynsum_compact_prompt" style="margin-top:10px;">
